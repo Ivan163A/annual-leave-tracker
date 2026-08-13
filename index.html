@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="年假紀錄">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#27ae60">
-<title>🌴 個人年假紀錄系統</title>
+<title>🌴 個人年假紀錄系統（強化版）</title>
 <style>
   * { -webkit-tap-highlight-color: transparent; }
   body{
@@ -79,7 +79,7 @@
 </head>
 <body>
 
-<h1>🌴 個人年假紀錄系統</h1>
+<h1>🌴 個人年假紀錄系統（強化版）</h1>
 
 <div class="pwa-hint" id="pwaHint">
   📱 建議喺 Safari 撳「分享」→「加入主畫面」，用起嚟更似 App，資料保存機率亦較高（Safari 分頁閒置太耐有機會清資料）。
@@ -109,7 +109,6 @@
   <button class="btn-calendar" id="btnAddCalendar" style="display:none;" onclick="addToCalendar()">📅 加入 iPhone 日曆提醒</button>
 </div>
 
-<!-- 設定卡：第一次未設定時自動展開；設定完成後自動收埋，只留摘要 + 編輯按鈕 -->
 <div class="card" id="settingsCard">
   <div id="settingsSummaryView" style="display:none;">
     <div class="settings-summary">
@@ -120,7 +119,7 @@
 
   <div id="settingsFormView">
     <h3>⚙️ 系統初始化設定</h3>
-    <p class="sub-note" style="margin-top:-10px;margin-bottom:15px;">設定您的基礎天數、起始日期，以及每日增長天數與積存上限（可自訂，不再硬編碼）</p>
+    <p class="sub-note" style="margin-top:-10px;margin-bottom:15px;">設定您的基礎天數、起始日期，以及每年可賺取天數與積存上限（可自訂，不再硬編碼）</p>
     <div class="flex-row">
       <div class="form-group">
         <label for="initDate">起始日期</label>
@@ -133,15 +132,15 @@
     </div>
     <div class="flex-row">
       <div class="form-group">
-        <label for="dailyRate">每日增長天數</label>
-        <input type="number" inputmode="decimal" id="dailyRate" step="0.0001" min="0" value="0.06">
+        <label for="annualQuota">每年可賺取天數</label>
+        <input type="number" inputmode="decimal" id="annualQuota" step="0.01" min="0" value="22">
       </div>
       <div class="form-group">
         <label for="maxLeave">積存上限（日）</label>
         <input type="number" inputmode="decimal" id="maxLeave" step="0.01" min="0" value="66">
       </div>
     </div>
-    <p class="sub-note" style="margin-top:-8px;">預設每日 0.06 天，如公司規則不同可自行調整。</p>
+    <p class="sub-note" style="margin-top:-8px;">系統會用「每年可賺取天數 ÷ 365」精確計算每日增長（例如 22 ÷ 365 = 0.0602739726...），畫面只會四捨五入顯示 2 位小數（0.06），但內部運算保持高精度，避免長期累積誤差。</p>
     <button onclick="saveSettings()">儲存設定</button>
     <button class="btn-cancel" id="settingsCancelBtn" style="display:none;" onclick="toggleSettingsForm(false)">取消</button>
   </div>
@@ -189,10 +188,12 @@
 </div>
 
 <script>
-const SCALE = 10000;
+const SCALE = 1000000; // 提高到百萬分之一天精度，避免固定 0.06 造成長期累積誤差
 
-let settings = JSON.parse(localStorage.getItem('leaveSettings')) || { date: '', balance: 0, dailyRate: 0.06, maxLeave: 66 };
-if (settings.dailyRate === undefined) settings.dailyRate = 0.06;
+let settings = JSON.parse(localStorage.getItem('leaveSettings')) || { date: '', balance: 0, annualQuota: 22, maxLeave: 66 };
+if (settings.annualQuota === undefined) {
+  settings.annualQuota = settings.dailyRate ? Math.round(settings.dailyRate * 365) : 22;
+}
 if (settings.maxLeave === undefined) settings.maxLeave = 66;
 let records = JSON.parse(localStorage.getItem('leaveRecords')) || [];
 let editingId = null;
@@ -208,7 +209,7 @@ function getLocalISODate(date) {
 function fmt(units) { return (units / SCALE).toFixed(2); }
 
 function isSettingsComplete() {
-  return !!settings.date && settings.dailyRate > 0 && settings.maxLeave > 0;
+  return !!settings.date && settings.annualQuota > 0 && settings.maxLeave > 0;
 }
 
 function toggleSettingsForm(showForm) {
@@ -223,7 +224,7 @@ function toggleSettingsForm(showForm) {
     formView.style.display = 'none';
     summaryView.style.display = 'block';
     document.getElementById('settingsSummaryText').innerHTML =
-      `<strong>目前設定：</strong>起始日期 ${settings.date}｜起始天數 ${settings.balance}｜每日增長 ${settings.dailyRate} 天｜上限 ${settings.maxLeave} 天`;
+      `<strong>目前設定：</strong>起始日期 ${settings.date}｜起始天數 ${settings.balance}｜每年可賺取 ${settings.annualQuota} 天｜上限 ${settings.maxLeave} 天`;
   }
 }
 
@@ -268,6 +269,9 @@ function importData(event) {
       if (!data.settings || !Array.isArray(data.records)) throw new Error('格式不正確');
       if (!confirm('還原備份將會覆蓋目前的設定及紀錄，確定繼續？')) return;
       settings = data.settings;
+      if (settings.annualQuota === undefined) {
+        settings.annualQuota = settings.dailyRate ? Math.round(settings.dailyRate * 365) : 22;
+      }
       records = data.records;
       localStorage.setItem('leaveSettings', JSON.stringify(settings));
       localStorage.setItem('leaveRecords', JSON.stringify(records));
@@ -338,7 +342,7 @@ function addToCalendar() {
 function init() {
   document.getElementById('initDate').value = settings.date;
   document.getElementById('initBalance').value = settings.balance;
-  document.getElementById('dailyRate').value = settings.dailyRate;
+  document.getElementById('annualQuota').value = settings.annualQuota;
   document.getElementById('maxLeave').value = settings.maxLeave;
   const todayStr = getLocalISODate(new Date());
   document.getElementById('leaveDate').value = todayStr;
@@ -350,13 +354,13 @@ function init() {
 function saveSettings() {
   const date = document.getElementById('initDate').value;
   const balance = parseFloat(document.getElementById('initBalance').value);
-  const dailyRate = parseFloat(document.getElementById('dailyRate').value);
+  const annualQuota = parseFloat(document.getElementById('annualQuota').value);
   const maxLeave = parseFloat(document.getElementById('maxLeave').value);
-  if (!date || isNaN(balance) || isNaN(dailyRate) || isNaN(maxLeave) || dailyRate <= 0 || maxLeave <= 0) {
+  if (!date || isNaN(balance) || isNaN(annualQuota) || isNaN(maxLeave) || annualQuota <= 0 || maxLeave <= 0) {
     alert('請填寫正確的設定值');
     return;
   }
-  settings = { date, balance, dailyRate, maxLeave };
+  settings = { date, balance, annualQuota, maxLeave };
   localStorage.setItem('leaveSettings', JSON.stringify(settings));
   toggleSettingsForm(false);
   updateUI();
@@ -409,8 +413,10 @@ function saveAndRefresh() {
   updateUI();
 }
 
+// 每日增長率：以「每年可賺取天數 ÷ 365」高精度計算，唔再用固定 0.06 造成長期累積誤差
 function getDailyRateInt() {
-  return Math.round((settings.dailyRate || 0.06) * SCALE);
+  const annualQuota = settings.annualQuota || 22;
+  return Math.round((annualQuota * SCALE) / 365);
 }
 
 function computeTodayBalance() {
@@ -467,7 +473,7 @@ function updateUI() {
   const { todayBalanceInt, DAILY_RATE_INT, MAX_LEAVE_INT, leaveDict, maxLeave } = base;
 
   displayEl.innerHTML = `${fmt(todayBalanceInt)} <span style="font-size:0.5em;color:#7f8c8d;font-weight:normal;">天</span>`;
-  rateNoteEl.innerText = `每日自動增長：${fmt(DAILY_RATE_INT)} 天 | 累積上限：${maxLeave} 天`;
+  rateNoteEl.innerText = `每年可賺取 ${settings.annualQuota} 天，每日自動增長：${fmt(DAILY_RATE_INT)} 天（精確值） | 累積上限：${maxLeave} 天`;
 
   const alertBox = document.getElementById('alertMessage');
   alertBox.style.display = 'none';
