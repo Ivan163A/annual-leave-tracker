@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="年假紀錄">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#27ae60">
+<title>🌴 個人年假紀錄系統（強化版）</title>
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+  body{
+    font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Tahoma,Geneva,Verdana,sans-serif;
+    background-color:#f4f7f6;color:#333;max-width:820px;margin:0 auto;
+    padding:20px calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
+    padding-top:calc(20px + env(safe-area-inset-top));
+    touch-action:manipulation;
+    -webkit-text-size-adjust:100%;
+  }
+  h1,h2,h3{color:#2c3e50;}
+  .card{background:#fff;padding:20px;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,0.1);margin-bottom:20px;}
+  .balance-display{font-size:2.5em;color:#27ae60;font-weight:bold;margin:10px 0;}
+  .sub-note{color:#7f8c8d;font-size:0.9em;}
+  .stat-row{display:flex;gap:15px;flex-wrap:wrap;margin-top:10px;}
+  .stat-box{flex:1;min-width:140px;background:#f8f9fa;border-radius:6px;padding:10px 14px;}
+  .stat-box .label{font-size:0.8em;color:#888;}
+  .stat-box .value{font-size:1.3em;font-weight:bold;color:#2c3e50;}
+  .stat-box .value.danger{color:#e74c3c;}
+  .form-group{margin-bottom:15px;}
+  label{display:block;margin-bottom:5px;font-weight:bold;font-size:0.9em;color:#555;}
+  input[type=date],input[type=number],input[type=text]{
+    width:100%;padding:12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;
+    font-size:16px;min-height:44px;
+  }
+  button{
+    background-color:#3498db;color:white;padding:12px 16px;border:none;border-radius:4px;
+    cursor:pointer;font-size:15px;transition:background-color 0.15s;min-height:44px;
+  }
+  button:active{transform:scale(0.97);}
+  button:hover{background-color:#2980b9;}
+  .btn-add{background-color:#27ae60;font-size:16px;padding:14px 20px;width:100%;}
+  .btn-add:hover{background-color:#219653;}
+  .btn-edit{background-color:#f39c12;padding:8px 14px;margin-right:5px;}
+  .btn-edit:hover{background-color:#d68910;}
+  .btn-delete{background-color:#e74c3c;padding:8px 14px;}
+  .btn-delete:hover{background-color:#c0392b;}
+  .btn-save-edit{background-color:#2ecc71;padding:8px 14px;margin-right:5px;}
+  .btn-save-edit:hover{background-color:#27ae60;}
+  .btn-cancel{background-color:#95a5a6;padding:8px 14px;}
+  .btn-cancel:hover{background-color:#7f8c8d;}
+  .btn-settings-toggle{background-color:#95a5a6;font-size:0.85em;padding:8px 14px;}
+  .btn-settings-toggle:hover{background-color:#7f8c8d;}
+  .btn-backup{background-color:#8e44ad;font-size:0.85em;padding:10px 14px;margin-right:8px;margin-bottom:6px;}
+  .btn-backup:hover{background-color:#732d91;}
+  .btn-calendar{background-color:#e67e22;font-size:0.9em;padding:10px 16px;margin-top:12px;}
+  .btn-calendar:hover{background-color:#ca6510;}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:0.95em;}
+  th,td{padding:12px 8px;text-align:left;border-bottom:1px solid #ddd;}
+  th{background-color:#f8f9fa;color:#555;font-weight:600;}
+  .edit-input{width:100%;padding:8px;border:1px solid #3498db;border-radius:3px;box-sizing:border-box;font-size:0.9em;min-height:40px;}
+  .edit-input-number{width:70px;}
+  .flex-row{display:flex;gap:15px;}
+  .flex-row .form-group{flex:1;}
+  .alert{padding:15px;margin-top:15px;border-radius:6px;display:none;line-height:1.7;font-size:0.98em;}
+  .alert-warning{background-color:#fff3cd;color:#856404;border:1px solid #ffeeba;}
+  .alert-danger{background-color:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}
+  .alert-info{background-color:#d1ecf1;color:#0c5460;border:1px solid #bee5eb;}
+  .highlight-loss{color:#e74c3c;font-weight:bold;}
+  .settings-summary{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
+  .settings-summary .info{color:#555;font-size:0.9em;line-height:1.6;}
+  .pwa-hint{background:#eafaf1;border:1px dashed #27ae60;border-radius:6px;padding:12px;font-size:0.85em;color:#1e7e4a;margin-bottom:20px;line-height:1.6;}
+  @media (max-width:600px){
+    th,td{padding:10px 6px;font-size:0.9em;}
+    .btn-edit,.btn-delete,.btn-save-edit,.btn-cancel{padding:8px 10px;margin-bottom:4px;display:inline-block;}
+  }
+</style>
+</head>
+<body>
+
+<h1>🌴 個人年假紀錄系統（強化版）</h1>
+
+<div class="pwa-hint" id="pwaHint">
+  📱 建議喺 Safari 撳「分享」→「加入主畫面」，用起嚟更似 App，資料保存機率亦較高（Safari 分頁閒置太耐有機會清資料）。
+</div>
+
+<div class="card">
+  <h2>今日年假餘額</h2>
+  <div class="balance-display" id="displayBalance">0.00 天</div>
+  <p class="sub-note" id="rateNote">每日自動增長：-- 天 | 累積上限：-- 天</p>
+
+  <div class="stat-row">
+    <div class="stat-box">
+      <div class="label">下一次填滿上限日期</div>
+      <div class="value" id="statHitDate">--</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">距填滿尚餘天數</div>
+      <div class="value" id="statDaysLeft">--</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">如當日唔放將損失</div>
+      <div class="value" id="statLoss">--</div>
+    </div>
+  </div>
+
+  <div id="alertMessage" class="alert"></div>
+  <button class="btn-calendar" id="btnAddCalendar" style="display:none;" onclick="addToCalendar()">📅 加入 iPhone 日曆提醒</button>
+</div>
+
+<!-- 設定卡：第一次未設定時自動展開；設定完成後自動收埋，只留摘要 + 編輯按鈕 -->
+<div class="card" id="settingsCard">
+  <div id="settingsSummaryView" style="display:none;">
+    <div class="settings-summary">
+      <div class="info" id="settingsSummaryText"></div>
+      <button class="btn-settings-toggle" onclick="toggleSettingsForm(true)">✏️ 編輯設定</button>
+    </div>
+  </div>
+
+  <div id="settingsFormView">
+    <h3>⚙️ 系統初始化設定</h3>
+    <p class="sub-note" style="margin-top:-10px;margin-bottom:15px;">設定您的基礎天數、起始日期，以及每日增長天數與積存上限（可自訂，不再硬編碼）</p>
+    <div class="flex-row">
+      <div class="form-group">
+        <label for="initDate">起始日期</label>
+        <input type="date" id="initDate">
+      </div>
+      <div class="form-group">
+        <label for="initBalance">起始天數</label>
+        <input type="number" inputmode="decimal" id="initBalance" step="0.01" min="0">
+      </div>
+    </div>
+    <div class="flex-row">
+      <div class="form-group">
+        <label for="dailyRate">每日增長天數</label>
+        <input type="number" inputmode="decimal" id="dailyRate" step="0.0001" min="0" value="0.06">
+      </div>
+      <div class="form-group">
+        <label for="maxLeave">積存上限（日）</label>
+        <input type="number" inputmode="decimal" id="maxLeave" step="0.01" min="0" value="66">
+      </div>
+    </div>
+    <p class="sub-note" style="margin-top:-8px;">預設每日 0.06 天，如公司規則不同可自行調整。</p>
+    <button onclick="saveSettings()">儲存設定</button>
+    <button class="btn-cancel" id="settingsCancelBtn" style="display:none;" onclick="toggleSettingsForm(false)">取消</button>
+  </div>
+</div>
+
+<div class="card">
+  <h3>📝 紀錄放假</h3>
+  <div class="flex-row">
+    <div class="form-group">
+      <label for="leaveDate">放假日期</label>
+      <input type="date" id="leaveDate">
+    </div>
+    <div class="form-group">
+      <label for="leaveDays">扣除天數</label>
+      <input type="number" inputmode="decimal" id="leaveDays" step="0.5" min="0.5" value="1">
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="leaveReason">備註 (選填)</label>
+    <input type="text" id="leaveReason" placeholder="例如：家庭旅行">
+  </div>
+  <button class="btn-add" onclick="addLeaveRecord()">➕ 新增放假紀錄</button>
+</div>
+
+<div class="card" style="overflow-x:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+    <h3 style="margin:0;">📋 放假歷史紀錄</h3>
+    <div>
+      <button class="btn-backup" onclick="exportData()">⬇️ 備份資料</button>
+      <button class="btn-backup" onclick="document.getElementById('importFile').click()">⬆️ 還原備份</button>
+      <input type="file" id="importFile" accept=".json" style="display:none;" onchange="importData(event)">
+    </div>
+  </div>
+  <table style="min-width:500px;margin-top:15px;">
+    <thead>
+      <tr>
+        <th width="25%">日期</th>
+        <th width="20%">扣除天數</th>
+        <th width="30%">備註</th>
+        <th width="25%">操作</th>
+      </tr>
+    </thead>
+    <tbody id="recordTableBody"></tbody>
+  </table>
+</div>
+
+<script>
+const SCALE = 10000;
+
+let settings = JSON.parse(localStorage.getItem('leaveSettings')) || { date: '', balance: 0, dailyRate: 0.06, maxLeave: 66 };
+if (settings.dailyRate === undefined) settings.dailyRate = 0.06;
+if (settings.maxLeave === undefined) settings.maxLeave = 66;
+let records = JSON.parse(localStorage.getItem('leaveRecords')) || [];
+let editingId = null;
+let lastHitInfo = null;
+
+function getLocalISODate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function fmt(units) { return (units / SCALE).toFixed(2); }
+
+function isSettingsComplete() {
+  return !!settings.date && settings.dailyRate > 0 && settings.maxLeave > 0;
+}
+
+function toggleSettingsForm(showForm) {
+  const formView = document.getElementById('settingsFormView');
+  const summaryView = document.getElementById('settingsSummaryView');
+  const cancelBtn = document.getElementById('settingsCancelBtn');
+  if (showForm || !isSettingsComplete()) {
+    formView.style.display = 'block';
+    summaryView.style.display = 'none';
+    cancelBtn.style.display = isSettingsComplete() ? 'inline-block' : 'none';
+  } else {
+    formView.style.display = 'none';
+    summaryView.style.display = 'block';
+    document.getElementById('settingsSummaryText').innerHTML =
+      `<strong>目前設定：</strong>起始日期 ${settings.date}｜起始天數 ${settings.balance}｜每日增長 ${settings.dailyRate} 天｜上限 ${settings.maxLeave} 天`;
+  }
+}
+
+if (localStorage.getItem('pwaHintDismissed')) {
+  document.addEventListener('DOMContentLoaded', () => {
+    const hint = document.getElementById('pwaHint');
+    if (hint) hint.style.display = 'none';
+  });
+} else {
+  document.addEventListener('DOMContentLoaded', () => {
+    const hint = document.getElementById('pwaHint');
+    if (hint) {
+      hint.style.cursor = 'pointer';
+      hint.addEventListener('click', () => {
+        hint.style.display = 'none';
+        localStorage.setItem('pwaHintDismissed', '1');
+      });
+    }
+  });
+}
+
+function exportData() {
+  const backup = { settings, records, exportedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `leave-backup-${getLocalISODate(new Date())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.settings || !Array.isArray(data.records)) throw new Error('格式不正確');
+      if (!confirm('還原備份將會覆蓋目前的設定及紀錄，確定繼續？')) return;
+      settings = data.settings;
+      records = data.records;
+      localStorage.setItem('leaveSettings', JSON.stringify(settings));
+      localStorage.setItem('leaveRecords', JSON.stringify(records));
+      toggleSettingsForm(false);
+      updateUI();
+      alert('備份還原成功！');
+    } catch (err) {
+      alert('還原失敗：檔案格式不正確');
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function pad(n) { return String(n).padStart(2, '0'); }
+
+function addToCalendar() {
+  if (!lastHitInfo) { alert('目前未有可提醒嘅日期'); return; }
+  const { hitDateStr, lossStr, maxLeaveVal } = lastHitInfo;
+  const [y, m, d] = hitDateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  const dtStr = `${y}${pad(m)}${pad(d)}`;
+  const beforeDt = new Date(dt); beforeDt.setDate(beforeDt.getDate() - 1);
+  const beforeDtStr = `${beforeDt.getFullYear()}${pad(beforeDt.getMonth()+1)}${pad(beforeDt.getDate())}`;
+  const uid = `leave-cap-${dtStr}-${Date.now()}@leavetracker`;
+  const now = new Date();
+  const stamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+
+  const desc = `年假將於 ${hitDateStr} 達到上限 ${maxLeaveVal} 天，如當日唔放假將損失 ${lossStr} 天。記得喺 ${hitDateStr} 或之前安排放假。`.replace(/\n/g, '\\n');
+
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//LeaveTracker//HK//ZH',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART;VALUE=DATE:${dtStr}`,
+    `DTEND;VALUE=DATE:${dtStr}`,
+    `SUMMARY:⚠️ 年假將達上限（${maxLeaveVal}天），記得放假！`,
+    `DESCRIPTION:${desc}`,
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:年假上限提醒`,
+    `TRIGGER;VALUE=DATE-TIME:${beforeDtStr}T090000Z`,
+    'END:VALARM',
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:年假上限提醒（即日）`,
+    'TRIGGER:PT0S',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `年假提醒-${hitDateStr}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+function init() {
+  document.getElementById('initDate').value = settings.date;
+  document.getElementById('initBalance').value = settings.balance;
+  document.getElementById('dailyRate').value = settings.dailyRate;
+  document.getElementById('maxLeave').value = settings.maxLeave;
+  const todayStr = getLocalISODate(new Date());
+  document.getElementById('leaveDate').value = todayStr;
+
+  toggleSettingsForm(false);
+  updateUI();
+}
+
+function saveSettings() {
+  const date = document.getElementById('initDate').value;
+  const balance = parseFloat(document.getElementById('initBalance').value);
+  const dailyRate = parseFloat(document.getElementById('dailyRate').value);
+  const maxLeave = parseFloat(document.getElementById('maxLeave').value);
+  if (!date || isNaN(balance) || isNaN(dailyRate) || isNaN(maxLeave) || dailyRate <= 0 || maxLeave <= 0) {
+    alert('請填寫正確的設定值');
+    return;
+  }
+  settings = { date, balance, dailyRate, maxLeave };
+  localStorage.setItem('leaveSettings', JSON.stringify(settings));
+  toggleSettingsForm(false);
+  updateUI();
+}
+
+function addLeaveRecord() {
+  const date = document.getElementById('leaveDate').value;
+  const days = parseFloat(document.getElementById('leaveDays').value);
+  const reason = document.getElementById('leaveReason').value;
+  if (!date || isNaN(days) || days <= 0) { alert('請輸入有效日期及扣除天數（最少 0.5 天）'); return; }
+  if (settings.date && new Date(date) < new Date(settings.date)) {
+    alert('放假日期不可早於起始日期'); return;
+  }
+  const existingRecord = records.find(r => r.date === date);
+  if (existingRecord) {
+    if (!confirm(`${date} 已有一筆紀錄（${existingRecord.days} 天），是否新增另一筆？`)) return;
+  }
+  const record = { id: Date.now(), date, days, reason };
+  records.push(record);
+  saveAndRefresh();
+  document.getElementById('leaveReason').value = '';
+}
+
+function deleteRecord(id) {
+  if (confirm('確定刪除此紀錄？')) {
+    records = records.filter(r => r.id !== id);
+    saveAndRefresh();
+  }
+}
+
+function enterEditMode(id) { editingId = id; updateUI(); }
+function cancelEdit() { editingId = null; updateUI(); }
+
+function saveEdit(id) {
+  const newDate = document.getElementById(`edit-date-${id}`).value;
+  const newDays = parseFloat(document.getElementById(`edit-days-${id}`).value);
+  const newReason = document.getElementById(`edit-reason-${id}`).value;
+  if (!newDate || isNaN(newDays) || newDays <= 0) { alert('請輸入有效的資料'); return; }
+  const index = records.findIndex(r => r.id === id);
+  if (index !== -1) {
+    records[index] = { ...records[index], date: newDate, days: newDays, reason: newReason };
+  }
+  editingId = null;
+  saveAndRefresh();
+}
+
+function saveAndRefresh() {
+  records.sort((a, b) => new Date(a.date) - new Date(b.date));
+  localStorage.setItem('leaveRecords', JSON.stringify(records));
+  updateUI();
+}
+
+function getDailyRateInt() {
+  return Math.round((settings.dailyRate || 0.06) * SCALE);
+}
+
+function computeTodayBalance() {
+  const maxLeave = settings.maxLeave || 66;
+  const DAILY_RATE_INT = getDailyRateInt();
+  const MAX_LEAVE_INT = Math.round(maxLeave * SCALE);
+
+  const startDate = new Date(settings.date);
+  const today = new Date();
+  startDate.setHours(0,0,0,0);
+  today.setHours(0,0,0,0);
+
+  const leaveDict = {};
+  records.forEach(r => {
+    if (!leaveDict[r.date]) leaveDict[r.date] = 0;
+    leaveDict[r.date] += Math.round((parseFloat(r.days) || 0) * SCALE);
+  });
+
+  let balanceInt = Math.round((parseFloat(settings.balance) || 0) * SCALE);
+  let cur = new Date(startDate);
+  while (cur < today) {
+    balanceInt += DAILY_RATE_INT;
+    if (balanceInt > MAX_LEAVE_INT) balanceInt = MAX_LEAVE_INT;
+    cur.setDate(cur.getDate() + 1);
+    const ds = getLocalISODate(cur);
+    if (leaveDict[ds]) balanceInt -= leaveDict[ds];
+    if (balanceInt < 0) balanceInt = 0;
+  }
+  return { todayBalanceInt: balanceInt, DAILY_RATE_INT, MAX_LEAVE_INT, leaveDict, maxLeave };
+}
+
+function updateUI() {
+  renderTable();
+  document.getElementById('btnAddCalendar').style.display = 'none';
+  lastHitInfo = null;
+
+  const rateNoteEl = document.getElementById('rateNote');
+  const displayEl = document.getElementById('displayBalance');
+
+  if (!settings.date) {
+    displayEl.innerHTML = '請先設定起始日期';
+    rateNoteEl.innerText = '每日自動增長：-- 天 | 累積上限：-- 天';
+    document.getElementById('alertMessage').style.display = 'none';
+    return;
+  }
+
+  let base;
+  try {
+    base = computeTodayBalance();
+  } catch (err) {
+    displayEl.innerHTML = '計算錯誤，請檢查設定';
+    return;
+  }
+  const { todayBalanceInt, DAILY_RATE_INT, MAX_LEAVE_INT, leaveDict, maxLeave } = base;
+
+  displayEl.innerHTML = `${fmt(todayBalanceInt)} <span style="font-size:0.5em;color:#7f8c8d;font-weight:normal;">天</span>`;
+  rateNoteEl.innerText = `每日自動增長：${fmt(DAILY_RATE_INT)} 天 | 累積上限：${maxLeave} 天`;
+
+  const alertBox = document.getElementById('alertMessage');
+  alertBox.style.display = 'none';
+  document.getElementById('statDaysLeft').classList.remove('danger');
+  document.getElementById('statLoss').classList.remove('danger');
+
+  try {
+    if (todayBalanceInt >= MAX_LEAVE_INT) {
+      document.getElementById('statHitDate').innerText = '已達上限';
+      document.getElementById('statDaysLeft').innerText = '0 天';
+      document.getElementById('statLoss').innerText = '每日 ' + fmt(DAILY_RATE_INT) + ' 天';
+      document.getElementById('statLoss').classList.add('danger');
+      alertBox.innerHTML = `<strong>⛔ 你的年假已達到積存上限 ${maxLeave} 天！</strong><br>由今天起，每天賺取的 <span class="highlight-loss">${fmt(DAILY_RATE_INT)} 天</span>將會直接損失，建議盡快安排放假以釋放額外空間。`;
+      alertBox.className = 'alert alert-danger';
+      alertBox.style.display = 'block';
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    let futureBalance = todayBalanceInt;
+    let futureDate = new Date(today);
+    let daysSimulated = 0;
+    const SAFETY_LIMIT = 366 * 5;
+
+    while (futureBalance < MAX_LEAVE_INT && daysSimulated < SAFETY_LIMIT) {
+      futureDate.setDate(futureDate.getDate() + 1);
+      futureBalance += DAILY_RATE_INT;
+      const ds = getLocalISODate(futureDate);
+      if (leaveDict[ds]) futureBalance -= leaveDict[ds];
+      daysSimulated++;
+
+      if (futureBalance >= MAX_LEAVE_INT) {
+        const hitDateStr = getLocalISODate(futureDate);
+
+        document.getElementById('statHitDate').innerText = hitDateStr;
+        document.getElementById('statDaysLeft').innerText = daysSimulated + ' 天';
+        if (daysSimulated <= 3) document.getElementById('statDaysLeft').classList.add('danger');
+
+        if (futureBalance > MAX_LEAVE_INT) {
+          const lossInt = futureBalance - MAX_LEAVE_INT;
+          const lossStr = fmt(lossInt);
+          document.getElementById('statLoss').innerText = lossStr + ' 天';
+          document.getElementById('statLoss').classList.add('danger');
+          alertBox.innerHTML =
+            `<strong>⚠️ 提醒：如果一直唔放假，年假將於 <u>${hitDateStr}</u> 達到上限 ${maxLeave} 天，並<span class="highlight-loss">超額 ${lossStr} 天！</span></strong><br>` +
+            `呢 <span class="highlight-loss">${lossStr} 天</span>會直接蒸發（系統封頂顯示 ${maxLeave}.00 天，超出部分唔會保留）。<br>` +
+            `你最遲可以喺 <strong>${hitDateStr} 當日（即日都得）</strong>放假，只要即日扣走 ${lossStr} 天或以上，令當日餘額回落到 ${maxLeave} 天或以下，就唔算損失。<br>` +
+            `如果 ${hitDateStr} 都仲未放，呢 ${lossStr} 天就無法追返。`;
+          alertBox.className = 'alert alert-warning';
+          lastHitInfo = { hitDateStr, lossStr, maxLeaveVal: maxLeave };
+          document.getElementById('btnAddCalendar').style.display = 'inline-block';
+        } else {
+          document.getElementById('statLoss').innerText = '0 天（剛好整數）';
+          alertBox.innerHTML =
+            `<strong>ℹ️ 你的年假將於 <u>${hitDateStr}</u> 剛好達到上限 ${maxLeave}.00 天。</strong><br>` +
+            `由於當日餘額恰好是整數，唔會有任何小數損失，可以不必特別提前放假。`;
+          alertBox.className = 'alert alert-info';
+        }
+        alertBox.style.display = 'block';
+        break;
+      }
+    }
+
+    if (daysSimulated >= SAFETY_LIMIT) {
+      document.getElementById('statHitDate').innerText = '（超過 5 年未達上限）';
+      document.getElementById('statDaysLeft').innerText = '--';
+      document.getElementById('statLoss').innerText = '--';
+    }
+  } catch (err) {
+    document.getElementById('statHitDate').innerText = '計算失敗';
+    document.getElementById('statDaysLeft').innerText = '--';
+    document.getElementById('statLoss').innerText = '--';
+  }
+}
+
+function renderTable() {
+  const tbody = document.getElementById('recordTableBody');
+  tbody.innerHTML = '';
+  if (records.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#999;padding:20px;">暫無紀錄</td></tr>`;
+    return;
+  }
+  const displayRecords = [...records].reverse();
+  displayRecords.forEach(record => {
+    const tr = document.createElement('tr');
+    if (editingId === record.id) {
+      tr.innerHTML = `
+        <td><input type="date" id="edit-date-${record.id}" class="edit-input" value="${record.date}"></td>
+        <td><input type="number" inputmode="decimal" id="edit-days-${record.id}" class="edit-input edit-input-number" step="0.5" min="0.5" value="${record.days}"></td>
+        <td><input type="text" id="edit-reason-${record.id}" class="edit-input" value="${record.reason || ''}"></td>
+        <td>
+          <button class="btn-save-edit" onclick="saveEdit(${record.id})">儲存</button>
+          <button class="btn-cancel" onclick="cancelEdit()">取消</button>
+        </td>`;
+    } else {
+      tr.innerHTML = `
+        <td>${record.date}</td>
+        <td><strong style="color:#e74c3c;">-${record.days}</strong></td>
+        <td>${record.reason || '<span style="color:#bbb;">-</span>'}</td>
+        <td>
+          <button class="btn-edit" onclick="enterEditMode(${record.id})">編輯</button>
+          <button class="btn-delete" onclick="deleteRecord(${record.id})">刪除</button>
+        </td>`;
+    }
+    tbody.appendChild(tr);
+  });
+}
+
+window.onload = init;
+</script>
+</body>
+</html>
