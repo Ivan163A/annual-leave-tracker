@@ -190,15 +190,33 @@
 <script>
 const SCALE = 1000000; // 提高到百萬分之一天精度，避免固定 0.06 造成長期累積誤差
 
-let settings = JSON.parse(localStorage.getItem('leaveSettings')) || { date: '', balance: 0, annualQuota: 22, maxLeave: 66 };
+// ---- 安全讀取 localStorage：如果資料損壞，唔會令成個 App 開唔到 ----
+function safeParse(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed === null || parsed === undefined ? fallback : parsed;
+  } catch (e) {
+    console.warn(`讀取 ${key} 失敗，改用預設值`, e);
+    return fallback;
+  }
+}
+
+let settings = safeParse('leaveSettings', { date: '', balance: 0, annualQuota: 22, maxLeave: 66 });
 if (settings.annualQuota === undefined) {
   settings.annualQuota = settings.dailyRate ? Math.round(settings.dailyRate * 365) : 22;
 }
 if (settings.maxLeave === undefined) settings.maxLeave = 66;
-let records = JSON.parse(localStorage.getItem('leaveRecords')) || [];
+
+let records = safeParse('leaveRecords', []);
+if (!Array.isArray(records)) records = [];
+
 let editingId = null;
 let lastHitInfo = null;
 
+// ---- 日期工具：一律用本地時區手動 parse「YYYY-MM-DD」，避免 new Date("YYYY-MM-DD")
+//      喺負時區（例如美加）會將日期解讀錯一日嘅問題 ----
 function getLocalISODate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -206,7 +224,23 @@ function getLocalISODate(date) {
   return `${year}-${month}-${day}`;
 }
 
+function parseLocalDate(ds) {
+  const [y, m, d] = ds.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function daysBetween(d1, d2) {
+  // 假設兩個日期都已經係本地時間 00:00
+  return Math.round((d2 - d1) / 86400000);
+}
+
 function fmt(units) { return (units / SCALE).toFixed(2); }
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str === null || str === undefined ? '' : String(str);
+  return div.innerHTML;
+}
 
 function isSettingsComplete() {
   return !!settings.date && settings.annualQuota > 0 && settings.maxLeave > 0;
@@ -224,7 +258,7 @@ function toggleSettingsForm(showForm) {
     formView.style.display = 'none';
     summaryView.style.display = 'block';
     document.getElementById('settingsSummaryText').innerHTML =
-      `<strong>目前設定：</strong>起始日期 ${settings.date}｜起始天數 ${settings.balance}｜每年可賺取 ${settings.annualQuota} 天｜上限 ${settings.maxLeave} 天`;
+      `<strong>目前設定：</strong>起始日期 ${escapeHtml(settings.date)}｜起始天數 ${escapeHtml(settings.balance)}｜每年可賺取 ${escapeHtml(settings.annualQuota)} 天｜上限 ${escapeHtml(settings.maxLeave)} 天`;
   }
 }
 
@@ -272,7 +306,7 @@ function importData(event) {
       if (settings.annualQuota === undefined) {
         settings.annualQuota = settings.dailyRate ? Math.round(settings.dailyRate * 365) : 22;
       }
-      records = data.records;
+      records = Array.isArray(data.records) ? data.records : [];
       localStorage.setItem('leaveSettings', JSON.stringify(settings));
       localStorage.setItem('leaveRecords', JSON.stringify(records));
       toggleSettingsForm(false);
@@ -371,7 +405,8 @@ function addLeaveRecord() {
   const days = parseFloat(document.getElementById('leaveDays').value);
   const reason = document.getElementById('leaveReason').value;
   if (!date || isNaN(days) || days <= 0) { alert('請輸入有效日期及扣除天數（最少 0.5 天）'); return; }
-  if (settings.date && new Date(date) < new Date(settings.date)) {
+  // ISO 日期字串（YYYY-MM-DD）可以直接用字串比較，準確又唔使擔心時區問題
+  if (settings.date && date < settings.date) {
     alert('放假日期不可早於起始日期'); return;
   }
   const existingRecord = records.find(r => r.date === date);
@@ -408,7 +443,7 @@ function saveEdit(id) {
 }
 
 function saveAndRefresh() {
-  records.sort((a, b) => new Date(a.date) - new Date(b.date));
+  records.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   localStorage.setItem('leaveRecords', JSON.stringify(records));
   updateUI();
 }
@@ -419,15 +454,26 @@ function getDailyRateInt() {
   return Math.round((annualQuota * SCALE) / 365);
 }
 
+// 純增長（冇放假紀錄）嘅區間，可以直接用公式計算，唔使逐日 loop：
+// 因為每日封頂係單調遞增函數，中途冇扣減嘅話，N 日後嘅結果
+// 同「一次過加 N 日增長再封頂」係完全等價。
+function advanceLinear(balanceInt, days, rateInt, capInt) {
+  if (days <= 0) return balanceInt;
+  const grown = balanceInt + days * rateInt;
+  return grown > capInt ? capInt : grown;
+}
+
+// ---- 計算「今日餘額」：由逐日 loop（O(相距日數)）
+//      改為只喺有放假紀錄嘅日子之間跳躍計算（O(紀錄數量)），
+//      結果同原本逐日計算完全一致，但長年使用都唔會變慢 ----
 function computeTodayBalance() {
   const maxLeave = settings.maxLeave || 66;
   const DAILY_RATE_INT = getDailyRateInt();
   const MAX_LEAVE_INT = Math.round(maxLeave * SCALE);
 
-  const startDate = new Date(settings.date);
+  const startDate = parseLocalDate(settings.date);
   const today = new Date();
-  startDate.setHours(0,0,0,0);
-  today.setHours(0,0,0,0);
+  today.setHours(0, 0, 0, 0);
 
   const leaveDict = {};
   records.forEach(r => {
@@ -435,17 +481,81 @@ function computeTodayBalance() {
     leaveDict[r.date] += Math.round((parseFloat(r.days) || 0) * SCALE);
   });
 
+  // 只有起始日之後、今日或之前嘅紀錄先會影響今日餘額（同原本邏輯一致）
+  const relevantDates = Object.keys(leaveDict)
+    .map(parseLocalDate)
+    .filter(d => d > startDate && d <= today)
+    .sort((a, b) => a - b);
+
   let balanceInt = Math.round((parseFloat(settings.balance) || 0) * SCALE);
-  let cur = new Date(startDate);
-  while (cur < today) {
-    balanceInt += DAILY_RATE_INT;
-    if (balanceInt > MAX_LEAVE_INT) balanceInt = MAX_LEAVE_INT;
-    cur.setDate(cur.getDate() + 1);
-    const ds = getLocalISODate(cur);
-    if (leaveDict[ds]) balanceInt -= leaveDict[ds];
+  let checkpoint = startDate;
+
+  relevantDates.forEach(d => {
+    const days = daysBetween(checkpoint, d);
+    balanceInt = advanceLinear(balanceInt, days, DAILY_RATE_INT, MAX_LEAVE_INT);
+    balanceInt -= leaveDict[getLocalISODate(d)];
     if (balanceInt < 0) balanceInt = 0;
-  }
+    checkpoint = d;
+  });
+
+  const remainingDays = daysBetween(checkpoint, today);
+  balanceInt = advanceLinear(balanceInt, remainingDays, DAILY_RATE_INT, MAX_LEAVE_INT);
+
   return { todayBalanceInt: balanceInt, DAILY_RATE_INT, MAX_LEAVE_INT, leaveDict, maxLeave };
+}
+
+// ---- 計算「幾時會（再次）填滿上限」：同樣由逐日 loop（最多模擬 5 年）
+//      改為跳躍計算，只喺有未來放假紀錄嘅日子先逐段處理。
+//      即使「今日」已經係封頂狀態，都會照計：如果未來有已安排嘅放假紀錄
+//      令餘額跌返落嚟，就會計返之後幾時會再次填滿上限；如果完全冇任何
+//      未來紀錄令佢跌落嚟，會傳回 null（代表會一直封頂落去）。 ----
+function computeFutureHit(startBalanceInt, rateInt, capInt, leaveDict, fromDate) {
+  const futureDates = Object.keys(leaveDict)
+    .map(parseLocalDate)
+    .filter(d => d > fromDate)
+    .sort((a, b) => a - b);
+
+  let balance = startBalanceInt;
+  let checkpoint = new Date(fromDate);
+  let idx = 0;
+
+  // 第一階段：如果依家已經封頂，逐個未來紀錄咁行過去（封頂期間增長冇意義，
+  // 餘額會維持喺上限），直至搵到第一個令餘額跌返落嚟嘅紀錄為止
+  if (balance >= capInt) {
+    while (idx < futureDates.length) {
+      const d = futureDates[idx];
+      balance = capInt - leaveDict[getLocalISODate(d)];
+      if (balance < 0) balance = 0;
+      checkpoint = d;
+      idx++;
+      if (balance < capInt) break;
+      balance = capInt;
+    }
+    if (balance >= capInt) return null; // 冇任何未來紀錄令佢跌落嚟，會一直封頂
+  }
+
+  // 第二階段：由「未封頂」嘅狀態開始，搵返第一次填滿上限嘅日子（一撞到
+  // 就即刻停，唔會理會呢個日子之後仲有冇其他未來紀錄）
+  for (; idx < futureDates.length; idx++) {
+    const d = futureDates[idx];
+    const days = daysBetween(checkpoint, d);
+    const projected = balance + days * rateInt;
+    if (projected >= capInt) break;
+    balance = projected - leaveDict[getLocalISODate(d)];
+    if (balance < 0) balance = 0;
+    checkpoint = d;
+  }
+
+  const daysNeeded = Math.ceil((capInt - balance) / rateInt);
+  const hitDate = new Date(checkpoint);
+  hitDate.setDate(hitDate.getDate() + daysNeeded);
+  const finalBalanceInt = balance + daysNeeded * rateInt;
+
+  return {
+    hitDateStr: getLocalISODate(hitDate),
+    daysSimulated: daysBetween(fromDate, hitDate),
+    finalBalanceInt
+  };
 }
 
 function updateUI() {
@@ -481,68 +591,59 @@ function updateUI() {
   document.getElementById('statLoss').classList.remove('danger');
 
   try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     if (todayBalanceInt >= MAX_LEAVE_INT) {
-      document.getElementById('statHitDate').innerText = '已達上限';
-      document.getElementById('statDaysLeft').innerText = '0 天';
+      // 即使今日已封頂，都要check下有冇未來已安排嘅假期會令餘額跌返落嚟，
+      // 有嘅話就計返「之後」幾時會再次填滿上限
+      const futureHit = computeFutureHit(todayBalanceInt, DAILY_RATE_INT, MAX_LEAVE_INT, leaveDict, today);
+
       document.getElementById('statLoss').innerText = '每日 ' + fmt(DAILY_RATE_INT) + ' 天';
       document.getElementById('statLoss').classList.add('danger');
-      alertBox.innerHTML = `<strong>⛔ 你的年假已達到積存上限 ${maxLeave} 天！</strong><br>由今天起，每天賺取的 <span class="highlight-loss">${fmt(DAILY_RATE_INT)} 天</span>將會直接損失，建議盡快安排放假以釋放額外空間。`;
+
+      if (futureHit) {
+        document.getElementById('statHitDate').innerText = futureHit.hitDateStr;
+        document.getElementById('statDaysLeft').innerText = futureHit.daysSimulated + ' 天';
+        alertBox.innerHTML = `<strong>⛔ 你的年假目前已達到積存上限 ${maxLeave} 天！</strong><br>喺你安排咗嘅假期令餘額回落之前，每天賺取的 <span class="highlight-loss">${fmt(DAILY_RATE_INT)} 天</span>都會直接損失。<br>根據你已紀錄嘅未來假期，下一次會再次填滿上限嘅日期預計為 <u>${futureHit.hitDateStr}</u>（${futureHit.daysSimulated} 天後）。`;
+      } else {
+        document.getElementById('statHitDate').innerText = '已達上限';
+        document.getElementById('statDaysLeft').innerText = '0 天';
+        alertBox.innerHTML = `<strong>⛔ 你的年假已達到積存上限 ${maxLeave} 天！</strong><br>由今天起，每天賺取的 <span class="highlight-loss">${fmt(DAILY_RATE_INT)} 天</span>將會直接損失，建議盡快安排放假以釋放額外空間。`;
+      }
       alertBox.className = 'alert alert-danger';
       alertBox.style.display = 'block';
       return;
     }
 
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    let futureBalance = todayBalanceInt;
-    let futureDate = new Date(today);
-    let daysSimulated = 0;
-    const SAFETY_LIMIT = 366 * 5;
+    const hit = computeFutureHit(todayBalanceInt, DAILY_RATE_INT, MAX_LEAVE_INT, leaveDict, today);
+    const { hitDateStr, daysSimulated, finalBalanceInt } = hit;
 
-    while (futureBalance < MAX_LEAVE_INT && daysSimulated < SAFETY_LIMIT) {
-      futureDate.setDate(futureDate.getDate() + 1);
-      futureBalance += DAILY_RATE_INT;
-      const ds = getLocalISODate(futureDate);
-      if (leaveDict[ds]) futureBalance -= leaveDict[ds];
-      daysSimulated++;
+    document.getElementById('statHitDate').innerText = hitDateStr;
+    document.getElementById('statDaysLeft').innerText = daysSimulated + ' 天';
+    if (daysSimulated <= 3) document.getElementById('statDaysLeft').classList.add('danger');
 
-      if (futureBalance >= MAX_LEAVE_INT) {
-        const hitDateStr = getLocalISODate(futureDate);
-
-        document.getElementById('statHitDate').innerText = hitDateStr;
-        document.getElementById('statDaysLeft').innerText = daysSimulated + ' 天';
-        if (daysSimulated <= 3) document.getElementById('statDaysLeft').classList.add('danger');
-
-        if (futureBalance > MAX_LEAVE_INT) {
-          const lossInt = futureBalance - MAX_LEAVE_INT;
-          const lossStr = fmt(lossInt);
-          document.getElementById('statLoss').innerText = lossStr + ' 天';
-          document.getElementById('statLoss').classList.add('danger');
-          alertBox.innerHTML =
-            `<strong>⚠️ 提醒：如果一直唔放假，年假將於 <u>${hitDateStr}</u> 達到上限 ${maxLeave} 天，並<span class="highlight-loss">超額 ${lossStr} 天！</span></strong><br>` +
-            `呢 <span class="highlight-loss">${lossStr} 天</span>會直接蒸發（系統封頂顯示 ${maxLeave}.00 天，超出部分唔會保留）。<br>` +
-            `你最遲可以喺 <strong>${hitDateStr} 當日（即日都得）</strong>放假，只要即日扣走 ${lossStr} 天或以上，令當日餘額回落到 ${maxLeave} 天或以下，就唔算損失。<br>` +
-            `如果 ${hitDateStr} 都仲未放，呢 ${lossStr} 天就無法追返。`;
-          alertBox.className = 'alert alert-warning';
-          lastHitInfo = { hitDateStr, lossStr, maxLeaveVal: maxLeave };
-          document.getElementById('btnAddCalendar').style.display = 'inline-block';
-        } else {
-          document.getElementById('statLoss').innerText = '0 天（剛好整數）';
-          alertBox.innerHTML =
-            `<strong>ℹ️ 你的年假將於 <u>${hitDateStr}</u> 剛好達到上限 ${maxLeave}.00 天。</strong><br>` +
-            `由於當日餘額恰好是整數，唔會有任何小數損失，可以不必特別提前放假。`;
-          alertBox.className = 'alert alert-info';
-        }
-        alertBox.style.display = 'block';
-        break;
-      }
+    if (finalBalanceInt > MAX_LEAVE_INT) {
+      const lossInt = finalBalanceInt - MAX_LEAVE_INT;
+      const lossStr = fmt(lossInt);
+      document.getElementById('statLoss').innerText = lossStr + ' 天';
+      document.getElementById('statLoss').classList.add('danger');
+      alertBox.innerHTML =
+        `<strong>⚠️ 提醒：如果一直唔放假，年假將於 <u>${hitDateStr}</u> 達到上限 ${maxLeave} 天，並<span class="highlight-loss">超額 ${lossStr} 天！</span></strong><br>` +
+        `呢 <span class="highlight-loss">${lossStr} 天</span>會直接蒸發（系統封頂顯示 ${maxLeave}.00 天，超出部分唔會保留）。<br>` +
+        `你最遲可以喺 <strong>${hitDateStr} 當日（即日都得）</strong>放假，只要即日扣走 ${lossStr} 天或以上，令當日餘額回落到 ${maxLeave} 天或以下，就唔算損失。<br>` +
+        `如果 ${hitDateStr} 都仲未放，呢 ${lossStr} 天就無法追返。`;
+      alertBox.className = 'alert alert-warning';
+      lastHitInfo = { hitDateStr, lossStr, maxLeaveVal: maxLeave };
+      document.getElementById('btnAddCalendar').style.display = 'inline-block';
+    } else {
+      document.getElementById('statLoss').innerText = '0 天（剛好整數）';
+      alertBox.innerHTML =
+        `<strong>ℹ️ 你的年假將於 <u>${hitDateStr}</u> 剛好達到上限 ${maxLeave}.00 天。</strong><br>` +
+        `由於當日餘額恰好是整數，唔會有任何小數損失，可以不必特別提前放假。`;
+      alertBox.className = 'alert alert-info';
     }
-
-    if (daysSimulated >= SAFETY_LIMIT) {
-      document.getElementById('statHitDate').innerText = '（超過 5 年未達上限）';
-      document.getElementById('statDaysLeft').innerText = '--';
-      document.getElementById('statLoss').innerText = '--';
-    }
+    alertBox.style.display = 'block';
   } catch (err) {
     document.getElementById('statHitDate').innerText = '計算失敗';
     document.getElementById('statDaysLeft').innerText = '--';
@@ -562,18 +663,20 @@ function renderTable() {
     const tr = document.createElement('tr');
     if (editingId === record.id) {
       tr.innerHTML = `
-        <td><input type="date" id="edit-date-${record.id}" class="edit-input" value="${record.date}"></td>
-        <td><input type="number" inputmode="decimal" id="edit-days-${record.id}" class="edit-input edit-input-number" step="0.5" min="0.5" value="${record.days}"></td>
-        <td><input type="text" id="edit-reason-${record.id}" class="edit-input" value="${record.reason || ''}"></td>
+        <td><input type="date" id="edit-date-${record.id}" class="edit-input" value="${escapeHtml(record.date)}"></td>
+        <td><input type="number" inputmode="decimal" id="edit-days-${record.id}" class="edit-input edit-input-number" step="0.5" min="0.5" value="${escapeHtml(record.days)}"></td>
+        <td><input type="text" id="edit-reason-${record.id}" class="edit-input" value="${escapeHtml(record.reason || '')}"></td>
         <td>
           <button class="btn-save-edit" onclick="saveEdit(${record.id})">儲存</button>
           <button class="btn-cancel" onclick="cancelEdit()">取消</button>
         </td>`;
     } else {
+      // 用 escapeHtml 處理備註，避免備份檔或手動輸入嘅內容含有 HTML/script 標籤時
+      // 被瀏覽器當成程式碼執行（XSS 風險）
       tr.innerHTML = `
-        <td>${record.date}</td>
-        <td><strong style="color:#e74c3c;">-${record.days}</strong></td>
-        <td>${record.reason || '<span style="color:#bbb;">-</span>'}</td>
+        <td>${escapeHtml(record.date)}</td>
+        <td><strong style="color:#e74c3c;">-${escapeHtml(record.days)}</strong></td>
+        <td>${record.reason ? escapeHtml(record.reason) : '<span style="color:#bbb;">-</span>'}</td>
         <td>
           <button class="btn-edit" onclick="enterEditMode(${record.id})">編輯</button>
           <button class="btn-delete" onclick="deleteRecord(${record.id})">刪除</button>
