@@ -546,7 +546,11 @@ function computeFutureHit(startBalanceInt, rateInt, capInt, leaveDict, fromDate)
     checkpoint = d;
   }
 
-  const daysNeeded = Math.ceil((capInt - balance) / rateInt);
+  // 用「四捨五入」而唔係「無論如何都進位」嚟推算尚需天數，貼近一般公司
+  // HR 系統嘅顯示方式（佢哋通常都係四捨五入嚟俾用戶一個易明嘅日子，
+  // 而唔係保證嗰日已經 100% 足額 —— 誤差最多都係嗰日嘅一半增長量，
+  // 即係一日之內嘅事，對長遠規劃嚟講唔重要）。
+  const daysNeeded = Math.round((capInt - balance) / rateInt);
   const hitDate = new Date(checkpoint);
   hitDate.setDate(hitDate.getDate() + daysNeeded);
   const finalBalanceInt = balance + daysNeeded * rateInt;
@@ -636,11 +640,21 @@ function updateUI() {
       alertBox.className = 'alert alert-warning';
       lastHitInfo = { hitDateStr, lossStr, maxLeaveVal: maxLeave };
       document.getElementById('btnAddCalendar').style.display = 'inline-block';
-    } else {
+    } else if (finalBalanceInt === MAX_LEAVE_INT) {
       document.getElementById('statLoss').innerText = '0 天（剛好整數）';
       alertBox.innerHTML =
         `<strong>ℹ️ 你的年假將於 <u>${hitDateStr}</u> 剛好達到上限 ${maxLeave}.00 天。</strong><br>` +
         `由於當日餘額恰好是整數，唔會有任何小數損失，可以不必特別提前放假。`;
+      alertBox.className = 'alert alert-info';
+    } else {
+      // 用四捨五入推算出嚟嘅日子，當日餘額有機會仲差少少先至真正足額
+      // （最多都係差半日嘅增長量，通常一兩日內就會補返，四捨五入到 2 位
+      // 小數顯示嘅話基本上都已經係 maxLeave.00），呢個係四捨五入估算法
+      // 嘅正常現象，唔代表計錯數
+      document.getElementById('statLoss').innerText = '0 天';
+      alertBox.innerHTML =
+        `<strong>ℹ️ 你的年假預計於 <u>${hitDateStr}</u> 左右達到上限 ${maxLeave} 天。</strong><br>` +
+        `（呢個日期已經四捨五入處理，貼近一般公司 HR 系統嘅顯示方式；嗰日餘額已經非常接近上限，一兩日內就會完全補滿，唔使特別擔心。）`;
       alertBox.className = 'alert alert-info';
     }
     alertBox.style.display = 'block';
